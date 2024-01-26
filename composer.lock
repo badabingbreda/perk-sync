@@ -1,0 +1,59 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "49d4ea11860a86cc5505d3125a9c6ebf",
+    "packages": [
+        {
+            "name": "gdarko/wp-batch-processing",
+            "version": "1.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/gdarko/wp-batch-processing.git",
+                "reference": "be2a7a7b30423df09a4dd1c8098c71fa249d49dd"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/gdarko/wp-batch-processing/zipball/be2a7a7b30423df09a4dd1c8098c71fa249d49dd",
+                "reference": "be2a7a7b30423df09a4dd1c8098c71fa249d49dd",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=5.3"
+            },
+            "type": "library",
+            "autoload": {
+                "classmap": [
+                    "includes/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "GPL-2.0-or-later"
+            ],
+            "authors": [
+                {
+                    "name": "Darko Gjorgjijoski",
+                    "email": "dg@darkog.com"
+                }
+            ],
+            "description": "Easily process large batches of data in WordPress. Provide the data, setup the processing procedure, run the batch processor from the admin dashboard. Profit.",
+            "support": {
+                "issues": "https://github.com/gdarko/wp-batch-processing/issues",
+                "source": "https://github.com/gdarko/wp-batch-processing/tree/1.2.0"
+            },
+            "time": "2023-09-19T16:02:16+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": [],
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": [],
+    "plugin-api-version": "2.3.0"
+}
