@@ -15,6 +15,12 @@ class ActionScheduler {
         // custom hook that gets called and schedules perk update/imports
         add_action( 'perksync_single_perk_process', __CLASS__ . '::handle_single_perk_process', 10, 1 ); 
 
+        // add an action to delete all attachment for a perk when manually removing the perk
+        // hook into before_delete_post and not delete_post because otherwise metadata is already wiped
+        add_action( 'before_delete_post' , __CLASS__ . '::delete_attachments_for_perk' , 10 , 1 );
+        // hook into before_delete_post and not delete_post because otherwise metadata is already wiped
+        add_action( 'before_delete_post' , __CLASS__ . '::delete_attachments_for_brand' , 10 , 1 );
+
         
     }
 
@@ -49,7 +55,7 @@ class ActionScheduler {
         self::remote_brand_import();
         self::remote_perks_import();
         
-        error_log( 'It is just after midnight on ' . date( 'Y-m-d' ) );
+        //error_log( 'It is just after midnight on ' . date( 'Y-m-d' ) );
     }
 
     
@@ -65,7 +71,7 @@ class ActionScheduler {
         $data = json_decode($file , true);
         
         // import first 10 for now, during testing
-        $brands = array_slice($data[ 'brands' ],0,10);
+        $brands = $data['brands'];//array_slice($data[ 'brands' ],0,10);
         
         // run local brand cleanup first so that a new item's same slug can be taken
         self::local_brand_cleanup( $brands );
@@ -200,7 +206,7 @@ class ActionScheduler {
         $data = json_decode($file , true);
 
         // import first 10 for now, during testing
-        $perks = array_slice($data[ 'perks' ],0,10);
+        $perks = $data['perks'];//array_slice($data[ 'perks' ],0,10);
 
         // run local brand cleanup first so that a new item's same slug can be taken
         self::local_perk_cleanup( $perks );
@@ -307,11 +313,11 @@ class ActionScheduler {
      * @param  mixed $original_id
      * @return void
      */
-    private static function find_original_related_brand_id( $original_id ) {
+    private static function find_original_related_id( $original_id , $post_type = 'brand' ) {
 
         // try to match the perk to a perk in the database
         $args = [
-            'post_type' => 'brand',
+            'post_type' => $post_type,
             'meta_query' => [
                 'relation' => 'AND',
                 'original_id_clause' => [
@@ -369,8 +375,6 @@ class ActionScheduler {
             'post_content' => $perk[ 'description' ],
             'post_type' => 'perk',
             'post_status' => 'publish',
-
-
         );
 
         // figure out if we can update only by providing the local post_id
@@ -447,7 +451,7 @@ class ActionScheduler {
         if ( !function_exists( 'update_field' )) return;
 
         if ( isset( $perk[ 'brand_ID' ]) ) {
-            \update_field( 'related_brand' , self::find_original_related_brand_id( $perk[ 'brand_ID' ] ) , $local_post_id );
+            \update_field( 'related_brand' , self::find_original_related_id( $perk[ 'brand_ID' ] , 'brand' ) , $local_post_id );
         }
 
         if ( isset( $perk[ 'perk_type' ] )) {
@@ -482,12 +486,49 @@ class ActionScheduler {
     public static function handle_brand_logo_image( $local_post_id , $brand ) {
 
         if ( isset( $brand[ 'logo' ] ) && $brand[ 'logo' ] !== '' ) {
-            // sideload main image and return attachment ID
-            $attachment_id = \media_sideload_image( $brand[ 'logo' ] , $local_post_id , 'Logo Image for ' . esc_html( $brand[ 'title' ] ) , 'id' );
-            // if there is an attachment ID, proceed to set this image as post thumbnail
-            if ( $attachment_id ) {
+
+            foreach ( $brand[ 'logo' ] as $image ) {
+
+                // get current local media id
+                $local_media_id = get_post_thumbnail_id( $local_post_id );
+                if ( $local_media_id ) {
+                    // get original id
+                    $original_media_id = get_post_meta( $local_media_id , 'original_id' , false );
+                    if ( $image[ 'id' ] !== $original_media_id ) {
+                        // delete the existing media attachment
+                        \wp_delete_attachment( $local_media_id, true );
+                    }
+                }
+
+
+                // find out if we already imported this media
+                $local_media_id = self::find_original_related_id( $image[ 'id' ] , 'attachment' );
+
+                if ( $local_media_id ) {
+                    $attachment_id = $local_media_id;
+                } else {
+                    // sideload main image and return attachment ID
+                    $attachment_id = \media_sideload_image( $image[ 'url' ] , $local_post_id , 'Logo Image for ' . esc_html( $brand[ 'title' ] ) , 'id' );
+                    // if there is an attachment ID, proceed to set this image as post thumbnail
+                    if ( $attachment_id ) {
+                        // add an original id to the attachment so we don't need to import again
+                        \update_post_meta( $attachment_id , 'original_id' , $image[ 'id' ] );
+                    }
+                }
+
+                // set as post thubmnail
                 \set_post_thumbnail( $local_post_id , $attachment_id );
             }
+
+        // clear existing logo image and delete attachment if needed
+        } else {
+
+            // get current local media id
+            $local_media_id = get_post_thumbnail_id( $local_post_id );
+            if ( $local_media_id ) {
+                \wp_delete_attachment( $local_media_id, true );
+            }
+
         }
     }
     
@@ -502,12 +543,52 @@ class ActionScheduler {
     public static function handle_main_image( $local_post_id , $perk ) {
 
         if ( isset( $perk[ 'main_image' ] ) && $perk[ 'main_image' ] !== '' ) {
-            // sideload main image and return attachment ID
-            $attachment_id = \media_sideload_image( $perk[ 'main_image' ] , $local_post_id , 'Image for ' . esc_html( $perk[ 'title' ] ) , 'id' );
-            // if there is an attachment ID, proceed to set this image as post thumbnail
-            if ( $attachment_id ) {
+
+            foreach( $perk[ 'main_image' ] as $image ) {
+
+                // get current local media id
+                $local_media_id = get_post_thumbnail_id( $local_post_id );
+                if ( $local_media_id ) {
+                    // get original id
+                    $original_media_id = get_post_meta( $local_media_id , 'original_id' , false );
+                    if ( $image[ 'id' ] !== $original_media_id ) {
+                        // delete the existing media attachment
+                        \wp_delete_attachment( $local_media_id, true );
+                    }
+                }
+
+
+                // find out if we already imported this media
+                $local_media_id = self::find_original_related_id( $image[ 'id' ] , 'attachment' );
+
+                if ( $local_media_id ) {
+                    // use the exisiting media id
+                    \set_post_thumbnail( $local_post_id , $local_media_id );
+                } else {
+
+                    // sideload main image and return attachment ID
+                    $attachment_id = \media_sideload_image( $image['url'] , $local_post_id , 'Image for ' . esc_html( $perk[ 'title' ] ) , 'id' );
+                    // if there is an attachment ID, proceed to set this image as post thumbnail
+                    if ( $attachment_id ) {
+                        // add an original id to the attachment so we don't need to import again
+                        \update_post_meta( $attachment_id , 'original_id' , $image[ 'id' ] );
+                    }
+                }
+                // set as post thubmnail
                 \set_post_thumbnail( $local_post_id , $attachment_id );
+
+
             }
+
+        // clear existing logo image and delete attachment if needed
+        } else {
+
+            // get current local media id
+            $local_media_id = get_post_thumbnail_id( $local_post_id );
+            if ( $local_media_id ) {
+                \wp_delete_attachment( $local_media_id, true );
+            }
+
         }
     }
     
@@ -522,22 +603,85 @@ class ActionScheduler {
 
         $array_ids = [];
 
-        if ( isset( $perk[ 'images' ] ) && $perk[ 'images' ] !== '' ) {
-            // try to explode the images string
-            $images = explode( ',' , $perk[ 'images' ] );
+        if ( isset( $perk[ 'images' ] ) && $perk[ 'images' ] !== [] ) {
 
-            if ( $images ) {
-                foreach ($images as $image) {
+
+            // get an array of media ids that don't intersect
+            // !important TO DO
+
+            foreach ($perk['images'] as $image) {
+
+                // find out if we already imported this media
+                $local_media_id = self::find_original_related_id( $image[ 'id' ] , 'attachment' );
+
+                if ( $local_media_id ) {
+                    $attachment_id = $local_media_id;
+                } else {
                     // sideload main image and return attachment ID
-                    $attachment_id = \media_sideload_image( $image , $local_post_id , 'Image for ' . esc_html( $perk[ 'title' ] ) , 'id' );
+                    $attachment_id = \media_sideload_image( $image[ 'url' ] , $local_post_id , 'Image for ' . esc_html( $perk[ 'title' ] ) , 'id' );
+                }
 
-                    // Add the id to the array so we can set this as the gallery images
-                    if ( $attachment_id ) $array_ids[] = $attachment_id;
+                // Add the id to the array so we can set this as the gallery images
+                if ( $attachment_id ) {
+                    // add an original id to the attachment so we don't need to import again
+                    \update_post_meta( $attachment_id , 'original_id' , $image[ 'id' ] );
+                    $array_ids[] = $attachment_id;
                 }
             }
 
-            // update the gallery images
-            \update_field( 'images' , $array_ids , $local_post_id );
+        // delete existing acf images
+        } else {
+            foreach( \get_field( 'images' , $local_post_id ) as $image_id ) {
+                \wp_delete_attachment( $image_id, true );
+            }
         }
+
+        // update the gallery images
+        \update_field( 'images' , $array_ids , $local_post_id );
     }
+    
+    /**
+     * delete_attachments_for_perk
+     *
+     * @param  mixed $post_id
+     * @return void
+     */
+    public static function delete_attachments_for_perk( $post_id ) {
+
+        if ( get_post_type( $post_id  ) !== 'perk' ) return;
+
+        // delete featured image
+        $local_media_id = get_post_thumbnail_id( $post_id );
+        if ( $local_media_id ) {
+            \wp_delete_attachment( $local_media_id, true );
+        }
+        // delete all acf field 'images' for this post_id
+        foreach( \get_field( 'images' , $post_id ) as $image_id ) {
+            \wp_delete_attachment( $image_id, true );
+        }
+
+        return;        
+
+    }
+
+    /**
+     * delete_attachments_for_perk
+     *
+     * @param  mixed $post_id
+     * @return void
+     */
+    public static function delete_attachments_for_brand( $post_id ) {
+
+        if ( get_post_type( $post_id  ) !== 'brand' ) return;
+
+        // delete featured image
+        $local_media_id = get_post_thumbnail_id( $post_id );
+        if ( $local_media_id ) {
+            \wp_delete_attachment( $local_media_id, true );
+        }
+
+        return;        
+
+    }
+
 }
